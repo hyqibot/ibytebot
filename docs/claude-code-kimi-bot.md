@@ -81,6 +81,6 @@ GitHub PR 评论 /claude → Actions 跑 claude CLI → 请求发到 api.kimi.co
 | 报错 | 处理 |
 |------|------|
 | `Missing MOONSHOT_API_KEY` | 配置 Secret |
-| `Not logged in` / 鉴权失败 | 确认 Key 有效；workflow 已固定 `claude-code@2.1.63`（新版对第三方端点更严） |
+| `Not logged in` / 鉴权失败 | 确认 Key 有效；确认 `ANTHROPIC_BASE_URL=https://api.kimi.com/coding` |
 | 进程卡住无输出 | 多为工具权限等待；已用 `--permission-mode acceptEdits` + `--allowedTools` |
 | fork 跨仓库 PR | 改用同仓库分支 PR |
