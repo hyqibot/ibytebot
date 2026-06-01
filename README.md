@@ -289,6 +289,18 @@ GitHub Actions 会用 [Cursor Agent CLI](https://cursor.com/docs/cli/reference/c
 
 详细配置与限制见 [docs/cursor-pr-bot.md](docs/cursor-pr-bot.md)。
 
+## PR 评论 `/claude`（Claude Code + Kimi）
+
+在本仓库 Pull Request 里评论：
+
+```text
+/claude 你的任务说明…
+```
+
+GitHub Actions 会跑 **Claude Code** 框架，底层模型为 **Kimi**（Moonshot 国内 API），并 **commit + push 回当前 PR 分支**（需配置 `MOONSHOT_API_KEY`）。
+
+详细说明见 [docs/claude-code-kimi-bot.md](docs/claude-code-kimi-bot.md)。
+
 ## Contributing
 
 We welcome contributions! Whether it's:
