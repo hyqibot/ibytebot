@@ -242,9 +242,6 @@ git pull ibytebot main
 
 ---
 
-## 关于 `/tmp/pr.diff`
-
-**只存在于 GitHub Actions 的 Linux runner**，是 workflow 临时生成的 PR 差异文件，**你电脑上没有**。
 
 - Agent 在 CI 里读它  
 - 你在本地/网页看同样内容：**PR → Files changed**，或 `git diff main...你的分支`
@@ -292,10 +289,23 @@ git pull ibytebot main
 
 ## 排查
 
+**`/cursor` 跑在 GitHub Actions 云服务器上**，workflow 里用的 `gh`、`git` 等由 **GitHub 自动提供**，你**不用**为了用机器人而安装任何东西。
+
+**查看运行记录（推荐，浏览器）：**
+
+1. 打开 https://github.com/hyqibot/ibytebot/actions  
+2. 左侧选 **Cursor PR Comment**  
+3. 点某次运行看哪一步失败  
+
+PR 评论里的 ❌ 回复也会带 Actions run 链接，点进去即可。
+
+**可选（仅当你在本地 PowerShell 想查时）：** 需自行安装 [GitHub CLI (`gh`)](https://cli.github.com/)，Windows 默认没有：
+
 ```powershell
-# 需安装 GitHub CLI (gh)
 gh run list -R hyqibot/ibytebot -w "Cursor PR Comment" -L 5
 ```
+
+不装 `gh` 完全不影响 `/cursor` 正常使用。
 
 | 报错 | 处理 |
 |------|------|
