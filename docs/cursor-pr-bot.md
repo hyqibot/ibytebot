@@ -36,7 +36,7 @@
 ```powershell
 cd d:\bytebot
 git remote add ibytebot https://github.com/hyqibot/ibytebot.git
-git add .github/workflows/cursor-pr-comment.yml .cursor/cli.json docs/cursor-pr-bot.md
+git add .github/workflows/cursor-pr-comment.yml .cursor/cli.json docs/cursor-pr-bot.md README.md
 git commit -m "feat(ci): add PR comment /cursor Cursor Agent workflow"
 git push ibytebot main
 ```
