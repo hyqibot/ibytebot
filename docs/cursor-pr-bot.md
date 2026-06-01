@@ -129,11 +129,27 @@ git push -u ibytebot audit/project-improvements
 
 ### ② 在 GitHub 开 PR
 
-浏览器打开：
+**这个链接是什么：** GitHub 的「对比两个分支并创建 Pull Request」页面。
 
+**完整地址（把分支名换成你在 ① 里用的名字）：**
+
+```text
 https://github.com/hyqibot/ibytebot/compare/main...audit/project-improvements
+```
 
-→ **Create pull request** → 标题如 `audit: project improvement plan` → Description 可空 → 创建。
+**地址各部分含义：**
+
+| 片段 | 含义 |
+|------|------|
+| `hyqibot/ibytebot` | 你的仓库 |
+| `compare/` | 进入「对比分支」页 |
+| `main` | **合入目标**（PR 的 base，最后 Merge 进这里） |
+| `...` | 分隔符（固定写法） |
+| `audit/project-improvements` | **你的空分支**（PR 的 head，① 里 push 的那条） |
+
+打开后页面会显示：`base: main` ← `compare: audit/project-improvements`。确认无误后点 **Create pull request** → 标题如 `audit: project improvement plan` → Description 可空 → 创建。
+
+**不用记链接也行：** 打开 https://github.com/hyqibot/ibytebot → 点 **Pull requests** → **New pull request** → base 选 `main`，compare 选 `audit/project-improvements` → 创建。
 
 ### ③ 第一次 `/cursor`：出方案（先不大改业务代码）
 
