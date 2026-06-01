@@ -101,7 +101,7 @@ PR 页面包含：
 ```text
 main
   │
-  ├─ ① 开功能分支（如 audit/project-improvements）
+  ├─ ① 开空分支（audit/project-improvements）
   │
   ├─ ② 在 GitHub 开 PR（任务容器）
   │
@@ -116,11 +116,7 @@ main
   └─ ⑦ Merge PR → 进入 main
 ```
 
-### ① 开功能分支并推送
-
-**必须在本地执行一次**（或 GitHub 网页创建分支），因为 PR 需要「一条已存在的远程分支」。
-
-最简方式（**你本地还没有任何改动**时，用「空提交」把分支推上去即可）：
+### ① 开空分支并推送
 
 ```powershell
 cd d:\bytebot
@@ -130,24 +126,6 @@ git checkout -b audit/project-improvements
 git commit --allow-empty -m "chore: start project audit PR"
 git push -u ibytebot audit/project-improvements
 ```
-
-**另一种常见情况**：开分支前，**你已经在本地改了一些文件**（例如手动改了 README、修了某个 bug）。这时：
-
-- **仍然必须开功能分支**（不能直接在 `main` 上 push 再开 PR）
-- 只是**不需要** `--allow-empty`，改成提交你真实改动的文件：
-
-```powershell
-cd d:\bytebot
-git checkout main
-git pull ibytebot main
-git checkout -b audit/project-improvements
-# 此处假设你已经用编辑器改好了某些文件
-git add .
-git commit -m "chore: start audit with my local edits"
-git push -u ibytebot audit/project-improvements
-```
-
-总结：**无论代码是你自己改的，还是之后交给 `/cursor` 改，流程都是「先开分支 → push → 开 PR」**。上面两种写法差别仅在于——分支上第一个 commit 是「空的占位」还是「你已有的本地改动」。
 
 ### ② 在 GitHub 开 PR
 
@@ -212,7 +190,7 @@ git pull ibytebot main
 
 ## 日常小改动（单轮 `/cursor`）
 
-1. 开功能分支 → push  
+1. 开空分支 → push（同上 ① 的 `--allow-empty` 命令，分支名按任务改）
 2. 开 PR  
 3. 评论一条 `/cursor` 说明要改什么  
 4. review → Merge  
@@ -294,7 +272,7 @@ gh run list -R hyqibot/ibytebot -w "Cursor PR Comment" -L 5
 
 | 你想做的事 | 怎么做 |
 |------------|--------|
-| 让 Cursor 改代码 | 开功能分支 → 开 PR → 评论 `/cursor` |
+| 让 Cursor 改代码 | 开空分支 → 开 PR → 评论 `/cursor` |
 | 先出方案再改 | 同一 PR 发两次 `/cursor`（先 docs，后代码） |
 | 批准方案 | 在 PR Conversation 写「批准 xxx」 |
 | 批准上线 | Merge PR |
