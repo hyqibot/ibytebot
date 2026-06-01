@@ -85,7 +85,7 @@ jobs:
 
       - name: Run Claude Code with Kimi
         env:
-          ANTHROPIC_BASE_URL: https://api.moonshot.cn/anthropic
+          ANTHROPIC_BASE_URL: https://api.kimi.com/coding
           ANTHROPIC_AUTH_TOKEN: ${{ secrets.MOONSHOT_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
           ANTHROPIC_MODEL: kimi-k2.5

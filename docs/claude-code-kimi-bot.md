@@ -5,7 +5,7 @@
 **Claude Code** 是 Agent 框架（读代码、跑命令、改文件、git 提交）；**Kimi** 通过 Moonshot **Anthropic 兼容接口**当底层模型，不调用 Claude 官方 API。
 
 ```text
-GitHub PR 评论 /claude → Actions 跑 claude CLI → 请求发到 api.moonshot.cn/anthropic → Kimi 模型
+GitHub PR 评论 /claude → Actions 跑 claude CLI → 请求发到 api.kimi.com/coding → Kimi 模型
 ```
 
 与 `/cursor`（Cursor Agent CLI）**并行独立**，可二选一或同时保留。
@@ -55,7 +55,7 @@ GitHub PR 评论 /claude → Actions 跑 claude CLI → 请求发到 api.moonsho
 
 | 变量 | 值 | 说明 |
 |------|-----|------|
-| `ANTHROPIC_BASE_URL` | `https://api.moonshot.cn/anthropic` | 国内 Moonshot Anthropic 兼容端点 |
+| `ANTHROPIC_BASE_URL` | `https://api.kimi.com/coding` | Kimi Coding 专用 Anthropic 兼容端点 |
 | `ANTHROPIC_AUTH_TOKEN` | `MOONSHOT_API_KEY` | Kimi 官方文档要求用此变量名 |
 | `ANTHROPIC_MODEL` | `kimi-k2.5` | 主模型 |
 
