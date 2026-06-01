@@ -13,6 +13,20 @@
 
 ---
 
+## 先分清：本地项目 vs GitHub 网站
+
+全文会交替出现两类操作，不要混为一谈：
+
+| | 在哪里做 | 例子 |
+|--|----------|------|
+| **本地** | 你电脑上的项目目录（如 `d:\bytebot`） | `git checkout`、`git push` |
+| **网站** | 浏览器打开 `github.com/hyqibot/ibytebot` | 开 PR、发 `/cursor` 评论、点 Merge |
+
+文档里出现的 `https://github.com/.../compare/...`、`/pulls`、`/settings` 等，都是 **GitHub 网站的功能地址**（像淘宝的「购物车」页面 URL），**不是**仓库里的文件夹。  
+你在资源管理器或 VS Code 里找不到 `compare` 目录，这是正常的。
+
+---
+
 ## 名词解释
 
 ### 分支（branch）
@@ -36,10 +50,8 @@ git checkout -b feat/某功能名    # 这就是「开功能分支」
 
 ### 开 PR（Open Pull Request，打开合并请求）
 
-在 GitHub 网页上发起：**「请把我的分支改动合进 `main`」**。
-
-- 地址入口：https://github.com/hyqibot/ibytebot/compare  
-- 选 `base: main` ← `compare: 你的分支` → **Create pull request**
+在 **GitHub 网站**（浏览器）上发起：**「请把我的分支改动合进 `main`」**。  
+这一步**不在**本地 `d:\bytebot` 里完成。
 
 PR 页面包含：
 
@@ -48,6 +60,8 @@ PR 页面包含：
 | **Conversation** | 讨论、发 `/cursor` 指令 |
 | **Files changed** | 查看 Agent / 你改了什么 |
 | **Merge pull request** | 你最终批准，合入 `main` |
+
+具体怎么开 PR，见下文 **标准流程 → ②**。
 
 ### 「审查用 PR」（任务容器）
 
@@ -116,7 +130,7 @@ main
   └─ ⑦ Merge PR → 进入 main
 ```
 
-### ① 开空分支并推送
+### ① 开空分支并推送（本地 PowerShell）
 
 ```powershell
 cd d:\bytebot
@@ -127,29 +141,38 @@ git commit --allow-empty -m "chore: start project audit PR"
 git push -u ibytebot audit/project-improvements
 ```
 
-### ② 在 GitHub 开 PR
+### ② 在 GitHub 网站开 PR（浏览器操作）
 
-**这个链接是什么：** GitHub 的「对比两个分支并创建 Pull Request」页面。
+> **注意：** 从本节起是 **GitHub 网站**操作，不是本地目录。链接里的 `/compare` 是网站功能页，项目里没有这个文件夹。
 
-**完整地址（把分支名换成你在 ① 里用的名字）：**
+**方式一：点按钮（推荐，不用记 URL）**
+
+1. 浏览器打开：https://github.com/hyqibot/ibytebot  
+2. 顶部点 **Pull requests**  
+3. 点绿色 **New pull request**  
+4. **base** 选 `main`（合入目标）  
+5. **compare** 选 `audit/project-improvements`（① 里 push 的分支名，按你实际改的）  
+6. 点 **Create pull request** → 标题如 `audit: project improvement plan` → Description 可空 → 创建  
+
+**方式二：用快捷链接（效果与方式一相同）**
+
+把下面地址里的分支名换成 ① 里用的名字，粘贴到浏览器地址栏：
 
 ```text
 https://github.com/hyqibot/ibytebot/compare/main...audit/project-improvements
 ```
 
-**地址各部分含义：**
+链接拆解（全是 **GitHub 网站路径**，不是本地路径）：
 
 | 片段 | 含义 |
 |------|------|
-| `hyqibot/ibytebot` | 你的仓库 |
-| `compare/` | 进入「对比分支」页 |
-| `main` | **合入目标**（PR 的 base，最后 Merge 进这里） |
-| `...` | 分隔符（固定写法） |
-| `audit/project-improvements` | **你的空分支**（PR 的 head，① 里 push 的那条） |
+| `github.com/hyqibot/ibytebot` | 打开你的仓库主页 |
+| `/compare/` | 网站「对比分支、准备开 PR」功能（类似 `/pulls` 是 PR 列表页） |
+| `main` | 合入目标分支（base） |
+| `...` | GitHub 规定的分隔符 |
+| `audit/project-improvements` | 你的源分支（compare / head） |
 
-打开后页面会显示：`base: main` ← `compare: audit/project-improvements`。确认无误后点 **Create pull request** → 标题如 `audit: project improvement plan` → Description 可空 → 创建。
-
-**不用记链接也行：** 打开 https://github.com/hyqibot/ibytebot → 点 **Pull requests** → **New pull request** → base 选 `main`，compare 选 `audit/project-improvements` → 创建。
+打开后应显示 `base: main` ← `compare: audit/project-improvements`，再点 **Create pull request**。
 
 ### ③ 第一次 `/cursor`：出方案（先不大改业务代码）
 
