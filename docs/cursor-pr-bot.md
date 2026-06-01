@@ -141,12 +141,38 @@ git commit --allow-empty -m "chore: start project audit PR"
 git push -u ibytebot audit/project-improvements
 ```
 
-### ② 在 GitHub 网站开 PR（浏览器）
+### ② 在 GitHub 网站开 PR（浏览器操作）
 
-1. 打开 https://github.com/hyqibot/ibytebot  
-2. **Pull requests** → **New pull request**  
-3. **base** 选 `main`，**compare** 选 ① 里的分支名（如 `audit/project-improvements`）  
-4. **Create pull request** → 标题随意 → Description 可空 → 创建  
+> **注意：** 从本节起是 **GitHub 网站**操作，不是本地目录。链接里的 `/compare` 是网站功能页，项目里没有这个文件夹。
+
+**方式一：点按钮（推荐，不用记 URL）**
+
+1. 浏览器打开：https://github.com/hyqibot/ibytebot  
+2. 顶部点 **Pull requests**  
+3. 点绿色 **New pull request**  
+4. **base** 选 `main`（合入目标）  
+5. **compare** 选 `audit/project-improvements`（① 里 push 的分支名，按你实际改的）  
+6. 点 **Create pull request** → 标题如 `audit: project improvement plan` → Description 可空 → 创建  
+
+**方式二：用快捷链接（效果与方式一相同）**
+
+把下面地址里的分支名换成 ① 里用的名字，粘贴到浏览器地址栏：
+
+```text
+https://github.com/hyqibot/ibytebot/compare/main...audit/project-improvements
+```
+
+链接拆解（全是 **GitHub 网站路径**，不是本地路径）：
+
+| 片段 | 含义 |
+|------|------|
+| `github.com/hyqibot/ibytebot` | 打开你的仓库主页 |
+| `/compare/` | 网站「对比分支、准备开 PR」功能（类似 `/pulls` 是 PR 列表页） |
+| `main` | 合入目标分支（base） |
+| `...` | GitHub 规定的分隔符 |
+| `audit/project-improvements` | 你的源分支（compare / head） |
+
+打开后应显示 `base: main` ← `compare: audit/project-improvements`，再点 **Create pull request**。
 
 ### ③ 第一次 `/cursor`：出方案（先不大改业务代码）
 
@@ -228,12 +254,26 @@ git pull ibytebot main
 
 | 规则 | 说明 |
 |------|------|
-| 谁可触发 | 仓库 owner / 协作者（GitHub 自动判断，不用单独设置） |
+| 谁可触发 | 仅 OWNER / MEMBER / COLLABORATOR（见下方说明） |
 | Fork PR | **不支持**（无法 push 到别人 fork） |
 | 敏感文件 | Agent 不能写 `.env`、密钥等（`.cursor/cli.json` deny） |
 | 合入 main | 只有你在 PR 点 **Merge** 才会合入 |
 | API 额度 | 消耗 `CURSOR_API_KEY` 对应 Cursor 额度 |
 | 大仓库 | 建议分模块多轮审查；workflow 内 PR diff 超过约 500 行会截断 |
+
+### 「谁可触发 `/cursor`」要在 GitHub 里单独设置吗？
+
+**不用。** 这是 workflow 里写死的条件，GitHub 会根据**发评论的人**自动判断身份：
+
+| 身份 | 通常指谁 | 能否触发 |
+|------|----------|----------|
+| **OWNER** | 仓库拥有者（你） | ✅ |
+| **MEMBER** | 组织仓库的成员 | ✅ |
+| **COLLABORATOR** | 被你邀请的协作者 | ✅ |
+| **NONE** / 路人 | 未授权的普通 GitHub 用户 | ❌ |
+
+代码位置：`.github/workflows/cursor-pr-comment.yml` 里的 `author_association` 判断。  
+若要让其他人也能触发，在 GitHub **Settings → Collaborators** 邀请为协作者即可，**不用改 workflow**。
 
 ---
 
@@ -249,7 +289,23 @@ git pull ibytebot main
 
 ## 排查
 
-失败时打开 https://github.com/hyqibot/ibytebot/actions ，点 **Cursor PR Comment** 里对应那次运行，看哪一步报错。PR 里 ❌ 回复也会带链接。
+**`/cursor` 跑在 GitHub Actions 云服务器上**，workflow 里用的 `gh`、`git` 等由 **GitHub 自动提供**，你**不用**为了用机器人而安装任何东西。
+
+**查看运行记录（推荐，浏览器）：**
+
+1. 打开 https://github.com/hyqibot/ibytebot/actions  
+2. 左侧选 **Cursor PR Comment**  
+3. 点某次运行看哪一步失败  
+
+PR 评论里的 ❌ 回复也会带 Actions run 链接，点进去即可。
+
+**可选（仅当你在本地 PowerShell 想查时）：** 需自行安装 [GitHub CLI (`gh`)](https://cli.github.com/)，Windows 默认没有：
+
+```powershell
+gh run list -R hyqibot/ibytebot -w "Cursor PR Comment" -L 5
+```
+
+不装 `gh` 完全不影响 `/cursor` 正常使用。
 
 | 报错 | 处理 |
 |------|------|
