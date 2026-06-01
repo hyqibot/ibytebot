@@ -100,7 +100,7 @@ jobs:
           User request (from /cursor comment):
           ${REQUEST}
           AGENT_EOF
-          )" --model auto
+          )" --model auto --trust
 
       - name: Push fallback if agent left uncommitted changes
         run: |
