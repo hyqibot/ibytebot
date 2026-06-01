@@ -24,13 +24,6 @@ jobs:
       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
     runs-on: ubuntu-latest
     steps:
-      - name: React to comment
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh api "repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions" \
-            -f content='eyes'
-
       - name: Resolve pull request
         id: pr
         env:
@@ -38,7 +31,7 @@ jobs:
         run: |
           set -euo pipefail
           PR_NUMBER=${{ github.event.issue.number }}
-          JSON=$(gh pr view "$PR_NUMBER" --json number,headRefName,isCrossRepository,headRepository)
+          JSON=$(gh pr view "$PR_NUMBER" --repo "${{ github.repository }}" --json number,headRefName,headRefOid,isCrossRepository)
           CROSS=$(echo "$JSON" | jq -r '.isCrossRepository')
           if [ "$CROSS" = "true" ]; then
             echo "::error::/cursor 不支持 fork 跨仓库 PR（无法向贡献者 fork push）"
@@ -46,11 +39,21 @@ jobs:
           fi
           echo "number=$(echo "$JSON" | jq -r '.number')" >> "$GITHUB_OUTPUT"
           echo "head_ref=$(echo "$JSON" | jq -r '.headRefName')" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$(echo "$JSON" | jq -r '.headRefOid')" >> "$GITHUB_OUTPUT"
 
       - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.pr.outputs.head_sha }}
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - name: React to comment
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh pr checkout ${{ steps.pr.outputs.number }}
+        run: |
+          gh api "repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions" \
+            -f content='eyes'
 
       - name: Configure git
         run: |
@@ -114,11 +117,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          PR_NUMBER=${{ steps.pr.outputs.number }}
+          PR_NUMBER="${{ steps.pr.outputs.number }}"
+          if [ -z "$PR_NUMBER" ]; then
+            PR_NUMBER="${{ github.event.issue.number }}"
+          fi
           HEAD_REF="${{ steps.pr.outputs.head_ref }}"
           if [ "${{ job.status }}" = "success" ]; then
             BODY="✅ Cursor 已在 \`${HEAD_REF}\` 提交改动。请 review 后合并。"
           else
             BODY="❌ Cursor 执行失败。见 [Actions run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})。"
           fi
-          gh pr comment "$PR_NUMBER" --body "$BODY"
+          gh pr comment "$PR_NUMBER" --repo "${{ github.repository }}" --body "$BODY"
