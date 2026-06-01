@@ -80,3 +80,9 @@ gh run list -R hyqibot/ibytebot -w "Cursor PR Comment" -L 5
 - `Invalid project config ... cli.json` — 项目级 `cli.json` 只能有 `permissions`，不能有 `version`
 - `Missing CURSOR_API_KEY` — 未配置 Secret
 - `fork 跨仓库 PR` — 请让贡献者开同仓库分支 PR，或使用 maintainer 分支
+
+## 测试占位（/cursor 会改这里）
+
+- 状态：已由 Cursor 自动更新
+- 期望：本段第二行改为「状态：已由 Cursor 自动更新」
+- 验证时间：2026-05-20
