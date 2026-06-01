@@ -83,5 +83,6 @@ gh run list -R hyqibot/ibytebot -w "Cursor PR Comment" -L 5
 
 ## 测试占位（/cursor 会改这里）
 
-- 状态：待 /cursor 机器人验证
+- 状态：已由 Cursor 自动更新
 - 期望：本段第二行改为「状态：已由 Cursor 自动更新」
+- 验证时间：2026-05-20
