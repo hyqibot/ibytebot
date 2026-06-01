@@ -277,6 +277,18 @@ helm install bytebot ./helm \
 - **Documentation**: Comprehensive guides at [docs.bytebot.ai](https://docs.bytebot.ai)
 - **GitHub Issues**: Report bugs and request features
 
+## PR 评论 `/cursor`（ibytebot  fork）
+
+在本仓库（[hyqibot/ibytebot](https://github.com/hyqibot/ibytebot)）的 Pull Request 里评论：
+
+```text
+/cursor 你的任务说明…
+```
+
+GitHub Actions 会用 [Cursor Agent CLI](https://cursor.com/docs/cli/reference/configuration) 读取 PR diff、改代码，并 **commit + push 回当前 PR 分支**（需仓库配置 `CURSOR_API_KEY`）。
+
+详细配置与限制见 [docs/cursor-pr-bot.md](docs/cursor-pr-bot.md)。
+
 ## Contributing
 
 We welcome contributions! Whether it's:

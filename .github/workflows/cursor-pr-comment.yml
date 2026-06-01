@@ -1,0 +1,124 @@
+name: Cursor PR Comment
+
+# PR 评论 /cursor → Cursor Agent 读 diff、改代码、commit、push 回当前 PR 分支。
+# 仓库 Secrets：CURSOR_API_KEY（cursor.com 后台）
+# 仅仓库 OWNER / MEMBER / COLLABORATOR 可触发；不支持 fork 跨仓 PR。
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: cursor-pr-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  cursor:
+    if: |
+      github.event.issue.pull_request &&
+      contains(github.event.comment.body, '/cursor') &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+    runs-on: ubuntu-latest
+    steps:
+      - name: React to comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions" \
+            -f content='eyes'
+
+      - name: Resolve pull request
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          PR_NUMBER=${{ github.event.issue.number }}
+          JSON=$(gh pr view "$PR_NUMBER" --json number,headRefName,isCrossRepository,headRepository)
+          CROSS=$(echo "$JSON" | jq -r '.isCrossRepository')
+          if [ "$CROSS" = "true" ]; then
+            echo "::error::/cursor 不支持 fork 跨仓库 PR（无法向贡献者 fork push）"
+            exit 1
+          fi
+          echo "number=$(echo "$JSON" | jq -r '.number')" >> "$GITHUB_OUTPUT"
+          echo "head_ref=$(echo "$JSON" | jq -r '.headRefName')" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout PR branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr checkout ${{ steps.pr.outputs.number }}
+
+      - name: Configure git
+        run: |
+          git config user.name "cursor[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Install Cursor CLI
+        run: |
+          curl https://cursor.com/install -fsS | bash
+          echo "$HOME/.cursor/bin" >> "$GITHUB_PATH"
+
+      - name: Prepare prompt and PR diff
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          set -euo pipefail
+          PR_NUMBER=${{ steps.pr.outputs.number }}
+          printf '%s' "$COMMENT_BODY" | sed -E 's/\/cursor//Ig' | sed '/^[[:space:]]*$/d' > /tmp/cursor-user-request.txt
+          gh pr diff "$PR_NUMBER" > /tmp/pr.diff || true
+          if [ "$(wc -l < /tmp/pr.diff | tr -d ' ')" -gt 500 ]; then
+            head -n 500 /tmp/pr.diff > /tmp/pr.diff.trimmed
+            mv /tmp/pr.diff.trimmed /tmp/pr.diff
+            echo "(PR diff truncated to first 500 lines)" >> /tmp/cursor-user-request.txt
+          fi
+
+      - name: Run Cursor Agent on PR
+        env:
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+        run: |
+          set -euo pipefail
+          REQUEST=$(cat /tmp/cursor-user-request.txt)
+          agent -p "$(cat <<AGENT_EOF
+          You are working on pull request #${{ steps.pr.outputs.number }} for ${{ github.repository }} (Bytebot monorepo).
+
+          Workflow:
+          1. Read /tmp/pr.diff for the current PR changes.
+          2. Edit files in the workspace to fulfill the user request.
+          3. When finished, run exactly:
+             git add -A && git commit -m "chore(cursor): update from PR comment" && git push origin HEAD
+          4. If no code changes are needed, do not commit.
+          5. Do not edit .github/workflows unless the user explicitly asks.
+
+          User request (from /cursor comment):
+          ${REQUEST}
+          AGENT_EOF
+          )" --model auto
+
+      - name: Push fallback if agent left uncommitted changes
+        run: |
+          if git diff --quiet && git diff --cached --quiet; then
+            echo "No uncommitted changes after agent run"
+            exit 0
+          fi
+          git add -A
+          git commit -m "chore(cursor): apply /cursor from @${{ github.event.comment.user.login }}"
+          git push origin HEAD
+
+      - name: Comment result on PR
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_NUMBER=${{ steps.pr.outputs.number }}
+          HEAD_REF="${{ steps.pr.outputs.head_ref }}"
+          if [ "${{ job.status }}" = "success" ]; then
+            BODY="✅ Cursor 已在 \`${HEAD_REF}\` 提交改动。请 review 后合并。"
+          else
+            BODY="❌ Cursor 执行失败。见 [Actions run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})。"
+          fi
+          gh pr comment "$PR_NUMBER" --body "$BODY"

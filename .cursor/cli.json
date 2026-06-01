@@ -1,0 +1,34 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(**/*)",
+      "Write(packages/**/*)",
+      "Write(docs/**/*)",
+      "Write(static/**/*)",
+      "Write(docker/**/*)",
+      "Write(helm/**/*)",
+      "Write(*.md)",
+      "Shell(git)",
+      "Shell(npm)",
+      "Shell(npx)",
+      "Shell(node)",
+      "Shell(rg)",
+      "Shell(grep)",
+      "Shell(find)",
+      "Shell(ls)",
+      "Shell(cat)",
+      "Shell(head)",
+      "Shell(tail)"
+    ],
+    "deny": [
+      "Shell(gh)",
+      "Write(.github/**/*)",
+      "Write(.env*)",
+      "Write(**/.env*)",
+      "Write(docker/.env*)",
+      "Write(**/*.key)",
+      "Write(**/*secret*)",
+      "Write(**/credentials*)"
+    ]
+  }
+}
