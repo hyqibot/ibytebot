@@ -120,7 +120,7 @@ main
 
 **必须在本地执行一次**（或 GitHub 网页创建分支），因为 PR 需要「一条已存在的远程分支」。
 
-最简方式（甚至可以先不改任何代码）：
+最简方式（**你本地还没有任何改动**时，用「空提交」把分支推上去即可）：
 
 ```powershell
 cd d:\bytebot
@@ -131,7 +131,23 @@ git commit --allow-empty -m "chore: start project audit PR"
 git push -u ibytebot audit/project-improvements
 ```
 
-若你已经在改代码，把上面的空提交换成正常 `git add` + `git commit` 即可。
+**另一种常见情况**：开分支前，**你已经在本地改了一些文件**（例如手动改了 README、修了某个 bug）。这时：
+
+- **仍然必须开功能分支**（不能直接在 `main` 上 push 再开 PR）
+- 只是**不需要** `--allow-empty`，改成提交你真实改动的文件：
+
+```powershell
+cd d:\bytebot
+git checkout main
+git pull ibytebot main
+git checkout -b audit/project-improvements
+# 此处假设你已经用编辑器改好了某些文件
+git add .
+git commit -m "chore: start audit with my local edits"
+git push -u ibytebot audit/project-improvements
+```
+
+总结：**无论代码是你自己改的，还是之后交给 `/cursor` 改，流程都是「先开分支 → push → 开 PR」**。上面两种写法差别仅在于——分支上第一个 commit 是「空的占位」还是「你已有的本地改动」。
 
 ### ② 在 GitHub 开 PR
 
@@ -224,12 +240,26 @@ git pull ibytebot main
 
 | 规则 | 说明 |
 |------|------|
-| 谁可触发 | 仅 OWNER / MEMBER / COLLABORATOR |
+| 谁可触发 | 仅 OWNER / MEMBER / COLLABORATOR（见下方说明） |
 | Fork PR | **不支持**（无法 push 到别人 fork） |
 | 敏感文件 | Agent 不能写 `.env`、密钥等（`.cursor/cli.json` deny） |
 | 合入 main | 只有你在 PR 点 **Merge** 才会合入 |
 | API 额度 | 消耗 `CURSOR_API_KEY` 对应 Cursor 额度 |
 | 大仓库 | 建议分模块多轮审查；workflow 内 PR diff 超过约 500 行会截断 |
+
+### 「谁可触发 `/cursor`」要在 GitHub 里单独设置吗？
+
+**不用。** 这是 workflow 里写死的条件，GitHub 会根据**发评论的人**自动判断身份：
+
+| 身份 | 通常指谁 | 能否触发 |
+|------|----------|----------|
+| **OWNER** | 仓库拥有者（你） | ✅ |
+| **MEMBER** | 组织仓库的成员 | ✅ |
+| **COLLABORATOR** | 被你邀请的协作者 | ✅ |
+| **NONE** / 路人 | 未授权的普通 GitHub 用户 | ❌ |
+
+代码位置：`.github/workflows/cursor-pr-comment.yml` 里的 `author_association` 判断。  
+若要让其他人也能触发，在 GitHub **Settings → Collaborators** 邀请为协作者即可，**不用改 workflow**。
 
 ---
 
