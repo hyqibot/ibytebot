@@ -1,27 +1,22 @@
-name: Claude Code (Kimi)
+name: Claude Code (Kimi) [manual]
 
-# PR 评论 /claude → Claude Code 框架 + Kimi（Moonshot 国内 Anthropic 兼容接口）
-# Secrets：MOONSHOT_API_KEY（https://platform.moonshot.cn）
-# 仅 OWNER / MEMBER / COLLABORATOR；不支持 fork 跨仓 PR
+# PR 评论 /claude 已合并到 cursor-pr-comment.yml（PR Agent Comment workflow）。
+# 本文件仅保留手动 workflow_dispatch，用于调试或重跑指定 PR。
 
 on:
-  issue_comment:
-    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: PR 编号
+        required: true
+        type: string
 
 permissions:
   contents: write
   pull-requests: write
 
-concurrency:
-  group: claude-pr-${{ github.event.issue.number }}
-  cancel-in-progress: true
-
 jobs:
   claude:
-    if: |
-      github.event.issue.pull_request &&
-      contains(github.event.comment.body, '/claude') &&
-      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
     runs-on: ubuntu-latest
     steps:
       - name: Resolve pull request
@@ -30,7 +25,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          PR_NUMBER=${{ github.event.issue.number }}
+          PR_NUMBER=${{ inputs.pr_number }}
           JSON=$(gh pr view "$PR_NUMBER" --repo "${{ github.repository }}" --json number,headRefName,headRefOid,isCrossRepository)
           CROSS=$(echo "$JSON" | jq -r '.isCrossRepository')
           if [ "$CROSS" = "true" ]; then
@@ -48,12 +43,9 @@ jobs:
           fetch-depth: 0
           token: ${{ github.token }}
 
-      - name: React to comment
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh api "repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions" \
-            -f content='eyes'
+      - name: Record base commit
+        id: base
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Configure git
         run: |
@@ -66,24 +58,13 @@ jobs:
           node-version: 22
 
       - name: Install Claude Code
-        run: |
-          npm install -g @anthropic-ai/claude-code@latest
-          claude --version
+        run: npm install -g @anthropic-ai/claude-code@latest
 
-      - name: Prepare prompt and PR diff
+      - name: Prepare PR diff
         env:
           GH_TOKEN: ${{ github.token }}
-          COMMENT_BODY: ${{ github.event.comment.body }}
         run: |
-          set -euo pipefail
-          PR_NUMBER=${{ steps.pr.outputs.number }}
-          printf '%s' "$COMMENT_BODY" | sed -E 's/\/claude//Ig' | sed '/^[[:space:]]*$/d' > /tmp/claude-user-request.txt
-          gh pr diff "$PR_NUMBER" > /tmp/pr.diff || true
-          if [ "$(wc -l < /tmp/pr.diff | tr -d ' ')" -gt 500 ]; then
-            head -n 500 /tmp/pr.diff > /tmp/pr.diff.trimmed
-            mv /tmp/pr.diff.trimmed /tmp/pr.diff
-            echo "(PR diff truncated to first 500 lines)" >> /tmp/claude-user-request.txt
-          fi
+          gh pr diff "${{ steps.pr.outputs.number }}" > /tmp/pr.diff || true
 
       - name: Run Claude Code with Kimi
         env:
@@ -91,45 +72,19 @@ jobs:
           ANTHROPIC_AUTH_TOKEN: ${{ secrets.MOONSHOT_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
           ANTHROPIC_MODEL: kimi-k2.5
-          ANTHROPIC_DEFAULT_OPUS_MODEL: kimi-k2.5
-          ANTHROPIC_DEFAULT_SONNET_MODEL: kimi-k2.5
-          ANTHROPIC_DEFAULT_HAIKU_MODEL: kimi-k2.5
-          CLAUDE_CODE_SUBAGENT_MODEL: kimi-k2.5
-          ENABLE_TOOL_SEARCH: "false"
           CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
           API_TIMEOUT_MS: "600000"
         run: |
-          set -euo pipefail
-          REQUEST=$(cat /tmp/claude-user-request.txt)
-          claude -p "$(cat <<AGENT_EOF
-          You are working on pull request #${{ steps.pr.outputs.number }} for ${{ github.repository }} (Bytebot monorepo).
-
-          Workflow:
-          1. Read /tmp/pr.diff for the current PR changes.
-          2. Use Read/Edit/Bash tools to fulfill the user request.
-          3. When finished, run exactly:
-             git add -A && git commit -m "chore(claude): update from PR comment" && git push origin HEAD
-          4. If no code changes are needed, do not commit.
-          5. Do not edit .github/workflows unless the user explicitly asks.
-          6. Do not write .env or secret/credential files.
-
-          User request (from /claude comment):
-          ${REQUEST}
-          AGENT_EOF
-          )" \
-            --bare \
-            --permission-mode acceptEdits \
-            --allowedTools "Bash(git:*),Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(rg:*),Bash(grep:*),Bash(find:*),Bash(ls:*),Bash(cat:*),Read,Edit,Write,Glob,Grep" \
-            --max-turns 40
+          claude -p "Manual rerun on PR #${{ steps.pr.outputs.number }}. Read /tmp/pr.diff and follow the latest /claude comment on the PR." \
+            --bare --permission-mode acceptEdits --max-turns 40 2>&1 | tee /tmp/claude-agent-output.txt
 
       - name: Push fallback if Claude left uncommitted changes
         run: |
           if git diff --quiet && git diff --cached --quiet; then
-            echo "No uncommitted changes after Claude run"
             exit 0
           fi
           git add -A
-          git commit -m "chore(claude): apply /claude from @${{ github.event.comment.user.login }}"
+          git commit -m "chore(claude): manual workflow_dispatch"
           git push origin HEAD
 
       - name: Comment result on PR
@@ -138,13 +93,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           PR_NUMBER="${{ steps.pr.outputs.number }}"
-          if [ -z "$PR_NUMBER" ]; then
-            PR_NUMBER="${{ github.event.issue.number }}"
-          fi
-          HEAD_REF="${{ steps.pr.outputs.head_ref }}"
-          if [ "${{ job.status }}" = "success" ]; then
-            BODY="✅ Claude Code（Kimi）已在 \`${HEAD_REF}\` 提交改动。请 review 后合并。"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          BASE_SHA="${{ steps.base.outputs.sha }}"
+          AFTER_SHA=$(git rev-parse HEAD 2>/dev/null || echo "$BASE_SHA")
+          if [ "${{ job.status }}" != "success" ]; then
+            BODY="❌ Claude Code 手动重跑失败。见 [Actions run](${RUN_URL})。"
+          elif [ "$BASE_SHA" != "$AFTER_SHA" ]; then
+            BODY="✅ Claude Code 手动重跑已在 \`${{ steps.pr.outputs.head_ref }}\` 提交改动。"
+          elif [ -f /tmp/claude-agent-output.txt ]; then
+            BODY="✅ Claude Code 手动重跑完成（无新提交）。见 [Actions run](${RUN_URL})。"
           else
-            BODY="❌ Claude Code 执行失败。见 [Actions run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})。"
+            BODY="✅ Claude Code 手动重跑结束。见 [Actions run](${RUN_URL})。"
           fi
           gh pr comment "$PR_NUMBER" --repo "${{ github.repository }}" --body "$BODY"

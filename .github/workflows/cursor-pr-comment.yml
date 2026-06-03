@@ -1,8 +1,8 @@
-name: Cursor PR Comment
+name: PR Agent Comment
 
-# PR 评论 /cursor → Cursor Agent 读 diff、改代码、commit、push 回当前 PR 分支。
-# 仓库 Secrets：CURSOR_API_KEY（cursor.com 后台）
-# 仅仓库 OWNER / MEMBER / COLLABORATOR 可触发；不支持 fork 跨仓 PR。
+# PR 评论 /cursor 或 /claude → 路由到对应 Agent（同一 workflow，避免重复 Actions 条目）
+# Secrets：CURSOR_API_KEY、MOONSHOT_API_KEY
+# 仅 OWNER / MEMBER / COLLABORATOR；不支持 fork 跨仓 PR
 
 on:
   issue_comment:
@@ -13,15 +13,39 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: cursor-pr-${{ github.event.issue.number }}
+  group: pr-agent-${{ github.event.issue.number }}
   cancel-in-progress: true
 
 jobs:
-  cursor:
+  route:
     if: |
       github.event.issue.pull_request &&
-      contains(github.event.comment.body, '/cursor') &&
       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+    runs-on: ubuntu-latest
+    outputs:
+      agent: ${{ steps.parse.outputs.agent }}
+    steps:
+      - id: parse
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          set -euo pipefail
+          body="$(printf '%s' "$COMMENT_BODY" | tr -d '\r')"
+          if echo "$body" | grep -qF '<!-- pr-agent:cursor -->'; then
+            echo "agent=cursor" >> "$GITHUB_OUTPUT"
+          elif echo "$body" | grep -qF '<!-- pr-agent:claude -->'; then
+            echo "agent=claude" >> "$GITHUB_OUTPUT"
+          elif echo "$body" | grep -qiE '(^|[[:space:]])/cursor([[:space:]]|$)'; then
+            echo "agent=cursor" >> "$GITHUB_OUTPUT"
+          elif echo "$body" | grep -qiE '(^|[[:space:]])/claude([[:space:]]|$)'; then
+            echo "agent=claude" >> "$GITHUB_OUTPUT"
+          else
+            echo "agent=none" >> "$GITHUB_OUTPUT"
+          fi
+
+  cursor:
+    needs: route
+    if: needs.route.outputs.agent == 'cursor'
     runs-on: ubuntu-latest
     steps:
       - name: Resolve pull request
@@ -48,6 +72,10 @@ jobs:
           fetch-depth: 0
           token: ${{ github.token }}
 
+      - name: Record base commit
+        id: base
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: React to comment
         env:
           GH_TOKEN: ${{ github.token }}
@@ -72,7 +100,7 @@ jobs:
         run: |
           set -euo pipefail
           PR_NUMBER=${{ steps.pr.outputs.number }}
-          printf '%s' "$COMMENT_BODY" | sed -E 's/\/cursor//Ig' | sed '/^[[:space:]]*$/d' > /tmp/cursor-user-request.txt
+          printf '%s' "$COMMENT_BODY" | sed -E 's/<!--[^>]*-->//g' | sed -E 's/\/cursor//Ig' | sed '/^[[:space:]]*$/d' > /tmp/cursor-user-request.txt
           gh pr diff "$PR_NUMBER" > /tmp/pr.diff || true
           if [ "$(wc -l < /tmp/pr.diff | tr -d ' ')" -gt 500 ]; then
             head -n 500 /tmp/pr.diff > /tmp/pr.diff.trimmed
@@ -90,17 +118,22 @@ jobs:
           You are working on pull request #${{ steps.pr.outputs.number }} for ${{ github.repository }} (Bytebot monorepo).
 
           Workflow:
-          1. Read /tmp/pr.diff for the current PR changes.
+          1. Read /tmp/pr.diff for the current PR changes and explore the repo as needed.
           2. Edit files in the workspace to fulfill the user request.
           3. When finished, run exactly:
              git add -A && git commit -m "chore(cursor): update from PR comment" && git push origin HEAD
-          4. If no code changes are needed, do not commit.
-          5. Do not edit .github/workflows unless the user explicitly asks.
+          4. If the user asks for audit/review only (no business code changes):
+             - Prefer writing findings to docs/audit-report.md (or a path they name) and commit+push that file; OR
+             - If they forbid any file writes, end with a detailed structured report in your final assistant message (the workflow posts it to the PR).
+          5. If no changes are needed at all, do not commit; still print a clear final report in your last message.
+          6. Do not edit .github/workflows unless the user explicitly asks.
 
           User request (from /cursor comment):
           ${REQUEST}
           AGENT_EOF
-          )" --model auto --trust
+          )" --model auto --trust 2>&1 | tee /tmp/cursor-agent-output.txt
+          AGENT_EXIT=${PIPESTATUS[0]}
+          exit "$AGENT_EXIT"
 
       - name: Push fallback if agent left uncommitted changes
         run: |
@@ -117,14 +150,203 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           PR_NUMBER="${{ steps.pr.outputs.number }}"
           if [ -z "$PR_NUMBER" ]; then
             PR_NUMBER="${{ github.event.issue.number }}"
           fi
           HEAD_REF="${{ steps.pr.outputs.head_ref }}"
-          if [ "${{ job.status }}" = "success" ]; then
-            BODY="✅ Cursor 已在 \`${HEAD_REF}\` 提交改动。请 review 后合并。"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          BASE_SHA="${{ steps.base.outputs.sha }}"
+          AFTER_SHA=$(git rev-parse HEAD 2>/dev/null || echo "$BASE_SHA")
+
+          if [ "${{ job.status }}" != "success" ]; then
+            BODY="❌ Cursor 执行失败。见 [Actions run](${RUN_URL})。"
+          elif [ "$BASE_SHA" != "$AFTER_SHA" ]; then
+            BODY="✅ Cursor 已在 \`${HEAD_REF}\` 提交改动。请 review **Files changed** 后合并。"
+          elif [ -f /tmp/cursor-agent-output.txt ] && grep -q '[^[:space:]]' /tmp/cursor-agent-output.txt; then
+            export RUN_URL
+            python3 <<'PY'
+          import os
+          import pathlib
+          run_url = os.environ["RUN_URL"]
+          text = pathlib.Path("/tmp/cursor-agent-output.txt").read_text(errors="replace").strip()
+          max_len = 55000
+          if len(text) > max_len:
+              text = text[:max_len] + "\n\n…（输出已截断，完整日志见 Actions）"
+          body = (
+              "✅ Cursor 已完成（**无新提交**）。审查/分析结论如下：\n\n"
+              + text
+              + f"\n\n---\n完整日志：[Actions run]({run_url})"
+          )
+          pathlib.Path("/tmp/cursor-pr-comment-body.txt").write_text(body, encoding="utf-8")
+          PY
+            BODY=$(cat /tmp/cursor-pr-comment-body.txt)
           else
-            BODY="❌ Cursor 执行失败。见 [Actions run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})。"
+            BODY="✅ Cursor 运行结束，但未检测到新提交，也无文本输出。请查看 [Actions 日志](${RUN_URL})。"
+          fi
+          gh pr comment "$PR_NUMBER" --repo "${{ github.repository }}" --body "$BODY"
+
+  claude:
+    needs: route
+    if: needs.route.outputs.agent == 'claude'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve pull request
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          PR_NUMBER=${{ github.event.issue.number }}
+          JSON=$(gh pr view "$PR_NUMBER" --repo "${{ github.repository }}" --json number,headRefName,headRefOid,isCrossRepository)
+          CROSS=$(echo "$JSON" | jq -r '.isCrossRepository')
+          if [ "$CROSS" = "true" ]; then
+            echo "::error::/claude 不支持 fork 跨仓库 PR"
+            exit 1
+          fi
+          echo "number=$(echo "$JSON" | jq -r '.number')" >> "$GITHUB_OUTPUT"
+          echo "head_ref=$(echo "$JSON" | jq -r '.headRefName')" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$(echo "$JSON" | jq -r '.headRefOid')" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.pr.outputs.head_sha }}
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - name: Record base commit
+        id: base
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: React to comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions" \
+            -f content='eyes'
+
+      - name: Configure git
+        run: |
+          git config user.name "claude[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Claude Code
+        run: |
+          npm install -g @anthropic-ai/claude-code@latest
+          claude --version
+
+      - name: Prepare prompt and PR diff
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          set -euo pipefail
+          PR_NUMBER=${{ steps.pr.outputs.number }}
+          printf '%s' "$COMMENT_BODY" | sed -E 's/<!--[^>]*-->//g' | sed -E 's/\/claude//Ig' | sed '/^[[:space:]]*$/d' > /tmp/claude-user-request.txt
+          gh pr diff "$PR_NUMBER" > /tmp/pr.diff || true
+          if [ "$(wc -l < /tmp/pr.diff | tr -d ' ')" -gt 500 ]; then
+            head -n 500 /tmp/pr.diff > /tmp/pr.diff.trimmed
+            mv /tmp/pr.diff.trimmed /tmp/pr.diff
+            echo "(PR diff truncated to first 500 lines)" >> /tmp/claude-user-request.txt
+          fi
+
+      - name: Run Claude Code with Kimi
+        env:
+          ANTHROPIC_BASE_URL: https://api.kimi.com/coding
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.MOONSHOT_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
+          ANTHROPIC_MODEL: kimi-k2.5
+          ANTHROPIC_DEFAULT_OPUS_MODEL: kimi-k2.5
+          ANTHROPIC_DEFAULT_SONNET_MODEL: kimi-k2.5
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: kimi-k2.5
+          CLAUDE_CODE_SUBAGENT_MODEL: kimi-k2.5
+          ENABLE_TOOL_SEARCH: "false"
+          CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+          API_TIMEOUT_MS: "600000"
+        run: |
+          set -euo pipefail
+          REQUEST=$(cat /tmp/claude-user-request.txt)
+          claude -p "$(cat <<AGENT_EOF
+          You are working on pull request #${{ steps.pr.outputs.number }} for ${{ github.repository }} (Bytebot monorepo).
+
+          Workflow:
+          1. Read /tmp/pr.diff for the current PR changes and explore the repo as needed.
+          2. Use Read/Edit/Bash tools to fulfill the user request.
+          3. When finished, run exactly:
+             git add -A && git commit -m "chore(claude): update from PR comment" && git push origin HEAD
+          4. If the user asks for audit/review only (no business code changes):
+             - Prefer writing findings to docs/audit-report.md (or a path they name) and commit+push that file; OR
+             - If they forbid any file writes, end with a detailed structured report in your final assistant message (the workflow posts it to the PR).
+          5. If no changes are needed at all, do not commit; still print a clear final report in your last message.
+          6. Do not edit .github/workflows unless the user explicitly asks.
+          7. Do not write .env or secret/credential files.
+
+          User request (from /claude comment):
+          ${REQUEST}
+          AGENT_EOF
+          )" \
+            --bare \
+            --permission-mode acceptEdits \
+            --allowedTools "Bash(git:*),Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(rg:*),Bash(grep:*),Bash(find:*),Bash(ls:*),Bash(cat:*),Read,Edit,Write,Glob,Grep" \
+            --max-turns 40 2>&1 | tee /tmp/claude-agent-output.txt
+          AGENT_EXIT=${PIPESTATUS[0]}
+          exit "$AGENT_EXIT"
+
+      - name: Push fallback if Claude left uncommitted changes
+        run: |
+          if git diff --quiet && git diff --cached --quiet; then
+            echo "No uncommitted changes after Claude run"
+            exit 0
+          fi
+          git add -A
+          git commit -m "chore(claude): apply /claude from @${{ github.event.comment.user.login }}"
+          git push origin HEAD
+
+      - name: Comment result on PR
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          PR_NUMBER="${{ steps.pr.outputs.number }}"
+          if [ -z "$PR_NUMBER" ]; then
+            PR_NUMBER="${{ github.event.issue.number }}"
+          fi
+          HEAD_REF="${{ steps.pr.outputs.head_ref }}"
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          BASE_SHA="${{ steps.base.outputs.sha }}"
+          AFTER_SHA=$(git rev-parse HEAD 2>/dev/null || echo "$BASE_SHA")
+
+          if [ "${{ job.status }}" != "success" ]; then
+            BODY="❌ Claude Code 执行失败。见 [Actions run](${RUN_URL})。"
+          elif [ "$BASE_SHA" != "$AFTER_SHA" ]; then
+            BODY="✅ Claude Code（Kimi）已在 \`${HEAD_REF}\` 提交改动。请 review **Files changed** 后合并。"
+          elif [ -f /tmp/claude-agent-output.txt ] && grep -q '[^[:space:]]' /tmp/claude-agent-output.txt; then
+            export RUN_URL
+            python3 <<'PY'
+          import os
+          import pathlib
+          run_url = os.environ["RUN_URL"]
+          text = pathlib.Path("/tmp/claude-agent-output.txt").read_text(errors="replace").strip()
+          max_len = 55000
+          if len(text) > max_len:
+              text = text[:max_len] + "\n\n…（输出已截断，完整日志见 Actions）"
+          body = (
+              "✅ Claude Code 已完成（**无新提交**）。审查/分析结论如下：\n\n"
+              + text
+              + f"\n\n---\n完整日志：[Actions run]({run_url})"
+          )
+          pathlib.Path("/tmp/claude-pr-comment-body.txt").write_text(body, encoding="utf-8")
+          PY
+            BODY=$(cat /tmp/claude-pr-comment-body.txt)
+          else
+            BODY="✅ Claude Code 运行结束，但未检测到新提交，也无文本输出。请查看 [Actions 日志](${RUN_URL})。"
           fi
           gh pr comment "$PR_NUMBER" --repo "${{ github.repository }}" --body "$BODY"

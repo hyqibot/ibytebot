@@ -9,21 +9,20 @@
 3. Agent 读 PR diff、改代码、**commit + push 回同一条 PR 分支**
 4. 你在 PR 里 review，满意后 **Merge** 才进入 `main`
 
-与 cc-haha 私有仓的手动 `Cursor Agent` workflow **相互独立**。
-
 ---
 
-## 先分清：本地项目 vs GitHub 网站
 
-全文会交替出现两类操作，不要混为一谈：
+## 本地 Git remote 说明（bytebot vs cc-haha）
 
-| | 在哪里做 | 例子 |
-|--|----------|------|
-| **本地** | 你电脑上的项目目录（如 `d:\bytebot`） | `git checkout`、`git push` |
-| **网站** | 浏览器打开 `github.com/hyqibot/ibytebot` | 开 PR、发 `/cursor` 评论、点 Merge |
+| 项目 | remote 名 | 指向 | 原因 |
+|------|-----------|------|------|
+| **bytebot**（`d:\bytebot`） | `origin` | [bytebot-ai/bytebot](https://github.com/bytebot-ai/bytebot) | clone 官方上游时的默认名 |
+| | `ibytebot` | [hyqibot/ibytebot](https://github.com/hyqibot/ibytebot) | 你实际部署 PR Agent 的 fork，**push 用这个** |
+| **cc-haha** | `origin` | hyqibot/claude-code-private | 只有一个仓，默认名即可 |
 
-文档里出现的 `https://github.com/.../compare/...`、`/pulls`、`/settings` 等，都是 **GitHub 网站的功能地址**（像淘宝的「购物车」页面 URL），**不是**仓库里的文件夹。  
-你在资源管理器或 VS Code 里找不到 `compare` 目录，这是正常的。
+`git remote` 只是本地别名，不是 GitHub 强制命名。bytebot 因「上游 + 自己的 fork」有两个名字；cc-haha 只对接一个仓所以只有 `origin`。
+
+PR Agent Desktop 设置里的 **GitHub Remote**（如 `ibytebot`）对应 `git push <remote>` 时用的名字，需与本地 `git remote -v` 一致。
 
 ---
 
@@ -63,17 +62,6 @@ PR 页面包含：
 
 具体怎么开 PR，见下文 **标准流程 → ②**。
 
-### 「审查用 PR」（任务容器）
-
-**不是新东西**，就是一条**用途为「审查 / 方案 / 多轮 Cursor 任务」的功能分支 + PR**。
-
-- 功能分支 = 草稿纸  
-- PR = 把草稿提交审核的「文件夹 + 评论区」  
-- 叫「任务容器」是因为：所有 `/cursor` 的改动都堆在这条 PR 上，**不 Merge 就不会进 `main`**
-
-和功能开发的唯一区别是**分支名和目的**（例如 `audit/project-improvements`），**操作完全一样**。
-
----
 
 ## 一次性配置（GitHub）
 
@@ -142,8 +130,6 @@ git push -u ibytebot audit/project-improvements
 ```
 
 ### ② 在 GitHub 网站开 PR（浏览器操作）
-
-> **注意：** 从本节起是 **GitHub 网站**操作，不是本地目录。链接里的 `/compare` 是网站功能页，项目里没有这个文件夹。
 
 **方式一：点按钮（推荐，不用记 URL）**
 
@@ -227,6 +213,44 @@ git pull ibytebot main
 
 ---
 
+## 只审查、不改业务代码（如依赖/Docker 风险扫描）
+
+适用：「列出风险，但不要改代码，等我审批」。
+
+### 为什么有时 Files changed 为空、也看不到结论？
+
+旧版 workflow 设计是 **改代码 → commit → push**，成功回复固定为「已提交改动」。  
+若 Agent 遵守「不改代码、不 commit」，**结论只留在 Actions 日志里**，PR 里就像「没回复」。
+
+**2026-06 起 workflow 已改进**：无新提交时，会把 Agent 终端输出贴到 PR 评论（见 `cursor-pr-comment.yml`）。  
+**需把更新后的 workflow push 到目标仓 `main`**（ibytebot）后，新触发的 `/cursor` 才生效。
+
+### 推荐写法（二选一）
+
+**方式 A（推荐）**：允许写 audit 文档，不改业务代码
+
+```text
+/cursor 审查 packages/bytebotd 的依赖与 Docker 配置，列出风险。
+
+要求：
+1. 将结论写入 docs/audit-bytebotd-YYYY-MM-DD.md（P0/P1/P2 + 风险 + 建议）
+2. 不要修改 packages/bytebotd 下的业务代码或 Dockerfile
+3. commit 并 push 仅 audit 文档到当前 PR 分支
+```
+
+完成后看 **Files changed** 里的 audit 文档。
+
+**方式 B**：完全禁止写任何文件
+
+```text
+/cursor 审查 packages/bytebotd 的依赖与 Docker 配置，列出风险。
+不要改任何文件，不要 commit。在最终回复里用结构化列表给出全部风险点。
+```
+
+workflow 会把 Agent 最终输出贴到 PR 评论（需已部署新版 workflow）。
+
+---
+
 ## 日常小改动（单轮 `/cursor`）
 
 1. 开空分支 → push（同上 ① 的 `--allow-empty` 命令，分支名按任务改）
@@ -275,13 +299,31 @@ git pull ibytebot main
 代码位置：`.github/workflows/cursor-pr-comment.yml` 里的 `author_association` 判断。  
 若要让其他人也能触发，在 GitHub **Settings → Collaborators** 邀请为协作者即可，**不用改 workflow**。
 
+以上是：在 Actions 脚本里加判断，只允许指定用户执行 /claude 指令，彻底限制陌生人调用 AI。
+另外，可以：
+权限开关：是否允许 Fork 仓库的 PR 运行 Actions
+GitHub 默认设置：
+
+◦ 公开仓库：允许来自 Fork 的 PR 触发本仓库 Actions（也就是路人提的 PR 也能用你的自动化）
+
+◦ 私有仓库：默认禁止 Fork 触发 Actions
+
+如果你想限制，关闭该权限：
+仓库 → Settings → Actions → General
+找到 Workflow permissions / Pull requests from forks
+
+◦ 勾选 Do not allow GitHub Actions workflows from forked repositories
+→ 效果：路人 Fork 后提的 PR，无法触发你的自动化，只有你仓库内部成员可用。
+
 ---
 
 ## 相关文件
 
 | 文件 | 作用 |
 |------|------|
-| `.github/workflows/cursor-pr-comment.yml` | `/cursor` 触发与 CI 流程 |
+| `.github/workflows/cursor-pr-comment.yml` | `/cursor` / `/claude` 统一触发（PR Agent Comment） |
+| `.github/workflows/claude-code-kimi.yml` | 手动 workflow_dispatch 调试 |
+| `.github/workflows/cursor-agent.yml` | workflow_dispatch（audit/implement） |
 | `.cursor/cli.json` | Agent 读写 / Shell 权限 |
 | `README.md` | 仓库首页简要说明 |
 
@@ -327,3 +369,36 @@ gh run list -R hyqibot/ibytebot -w "Cursor PR Comment" -L 5
 | 批准上线 | Merge PR |
 | 看改了什么 | PR → Files changed |
 | 扩大可改范围 | 改 `.cursor/cli.json` → push `main` |
+
+
+
+后只做「查看 + 建议」怎么 dispatch
+在 prompt 里写死约束，例如：
+
+只读评审，禁止修改任何文件。
+输出：1) 按优先级排序的改善建议 2) 每项说明位置/理由/风险 3) 可选的小步实施顺序。
+不要 git commit，不要改代码，不要跑会写文件的命令。
+
+已为 Cursor Agent workflow 加上 audit / implement 双模式，并写了说明文档。
+
+改动文件
+.github/workflows/cursor-agent.yml
+docs/reference/cursor-agent-workflow.md（新建）
+docs/reference/public-repo-sync-bootstrap.md（Secret 表加链接）
+怎么用
+场景	选什么
+看项目、提改善建议（类似 #5）
+mode = audit
+真要改代码
+mode = implement（默认，行为与以前一致）
+audit 模式行为
+Agent 指令：禁止改任何文件，结论只写在 stdout
+不跑 bun install（只 checkout + Cursor CLI）
+若仍产生 diff → 步骤 Reject audit workspace mutations 失败，打印 diff，不推分支
+报告位置：Actions → run → Run Cursor Agent (audit — read only) 日志
+implement 模式额外修复
+commit 时 排除 changed-files.txt，避免 CI 临时文件被提交
+下次 dispatch 示例
+
+mode: audit
+prompt: 通读 desktop 与 server 核心模块，按优先级列出改善建议，不要改任何文件。
