@@ -1,0 +1,172 @@
+name: Claude Agent
+
+# workflow_dispatch：audit=只读评审；implement=改代码并推分支
+# PR 评论请用 cursor-pr-comment.yml（PR Agent Comment）
+# Secrets: MOONSHOT_API_KEY
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: audit=只读评审；implement=允许改代码并推分支
+        required: false
+        default: implement
+        type: choice
+        options:
+          - audit
+          - implement
+      prompt:
+        description: 交给 Claude Code 的任务说明
+        required: true
+        type: string
+      create_pr:
+        description: （仅 implement）验证后是否自动开 PR
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: claude-agent-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  agent:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code@latest
+
+      - name: Run Claude Code (audit — read only)
+        if: inputs.mode == 'audit'
+        env:
+          ANTHROPIC_BASE_URL: https://api.kimi.com/coding
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.MOONSHOT_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
+          ANTHROPIC_MODEL: kimi-k2.5
+          ANTHROPIC_DEFAULT_OPUS_MODEL: kimi-k2.5
+          ANTHROPIC_DEFAULT_SONNET_MODEL: kimi-k2.5
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: kimi-k2.5
+          CLAUDE_CODE_SUBAGENT_MODEL: kimi-k2.5
+          ENABLE_TOOL_SEARCH: "false"
+          CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+          API_TIMEOUT_MS: "600000"
+        run: |
+          set -euo pipefail
+          claude -p "$(cat <<'AGENT_EOF'
+          IMPORTANT — 只读评审模式（必须遵守）：
+          - 禁止创建、修改、删除任何文件。
+          - 禁止 git、gh、commit、push、开 PR。
+          - 只允许 Read/Grep/Glob 等只读工具；结论写在 stdout（Markdown：概要 / 风险 / 建议）。
+          - 若任务要求改代码，说明「请用 mode=implement 重新 dispatch」后停止。
+
+          任务：
+          ${{ inputs.prompt }}
+          AGENT_EOF
+          )" --bare --permission-mode plan --max-turns 30 2>&1 | tee /tmp/claude-agent-output.txt
+          exit ${PIPESTATUS[0]}
+
+      - name: Publish audit report
+        if: inputs.mode == 'audit' && always()
+        run: |
+          set -euo pipefail
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          if [ -f /tmp/claude-agent-output.txt ] && grep -q '[^[:space:]]' /tmp/claude-agent-output.txt; then
+            {
+              echo "## Claude Code 只读评审报告"
+              echo ""
+              echo "任务：${{ inputs.prompt }}"
+              echo ""
+              cat /tmp/claude-agent-output.txt
+              echo ""
+              echo "---"
+              echo "完整日志：[Actions run](${RUN_URL})"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "audit 完成，但未捕获到 Agent 文本输出。见 ${RUN_URL}" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Run Claude Code (implement)
+        if: inputs.mode == 'implement'
+        env:
+          ANTHROPIC_BASE_URL: https://api.kimi.com/coding
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.MOONSHOT_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
+          ANTHROPIC_MODEL: kimi-k2.5
+          ANTHROPIC_DEFAULT_OPUS_MODEL: kimi-k2.5
+          ANTHROPIC_DEFAULT_SONNET_MODEL: kimi-k2.5
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: kimi-k2.5
+          CLAUDE_CODE_SUBAGENT_MODEL: kimi-k2.5
+          ENABLE_TOOL_SEARCH: "false"
+          CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+          API_TIMEOUT_MS: "600000"
+        run: |
+          set -euo pipefail
+          claude -p "$(cat <<'AGENT_EOF'
+          IMPORTANT — CI 约束：
+          - 不要执行 git、gh、commit、push、开 PR；只修改工作区文件。
+          - 不要改 .github/workflows、.env 或密钥文件。
+
+          任务：
+          ${{ inputs.prompt }}
+          AGENT_EOF
+          )" --bare --permission-mode acceptEdits \
+            --allowedTools "Bash(git:*),Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(rg:*),Bash(grep:*),Bash(find:*),Bash(ls:*),Bash(cat:*),Read,Edit,Write,Glob,Grep" \
+            --max-turns 40 2>&1 | tee /tmp/claude-agent-output.txt
+
+      - name: Detect changes
+        id: changes
+        if: inputs.mode == 'implement'
+        run: |
+          if git diff --quiet && git diff --cached --quiet; then
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+            git diff --name-only
+          fi
+
+      - name: Commit agent changes
+        if: inputs.mode == 'implement' && steps.changes.outputs.has_changes == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          branch="claude/agent-${{ github.run_id }}"
+          git checkout -B "$branch"
+          git add -A
+          git commit -m "chore(claude): agent workflow task"
+          git push -u origin "$branch"
+          if [ "${{ inputs.create_pr }}" = "true" ]; then
+            gh pr create --title "chore(claude): agent workflow task" --body "由 Claude Agent workflow 生成。"
+          fi
+
+      - name: Implement complete notice
+        if: inputs.mode == 'implement' && steps.changes.outputs.has_changes != 'true'
+        run: |
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          if [ -f /tmp/claude-agent-output.txt ] && grep -q '[^[:space:]]' /tmp/claude-agent-output.txt; then
+            {
+              echo "## Claude Code 完成（无文件改动）"
+              echo ""
+              cat /tmp/claude-agent-output.txt
+              echo ""
+              echo "---"
+              echo "[Actions run](${RUN_URL})"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Agent 未产生文件改动。见 ${RUN_URL}" >> "$GITHUB_STEP_SUMMARY"
+          fi

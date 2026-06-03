@@ -325,7 +325,9 @@ GitHub 默认设置：
 |------|------|
 | `.github/workflows/cursor-pr-comment.yml` | `/cursor` / `/claude` / `/codex` 统一触发（PR Agent Comment） |
 | `.github/workflows/claude-code-kimi.yml` | 手动 workflow_dispatch 调试 |
-| `.github/workflows/cursor-agent.yml` | workflow_dispatch（audit/implement） |
+| `.github/workflows/cursor-agent.yml` | workflow_dispatch（Cursor audit/implement） |
+| `.github/workflows/claude-agent.yml` | workflow_dispatch（Claude + Kimi audit/implement） |
+| `.github/workflows/codex-agent.yml` | workflow_dispatch（Codex + Kimi audit/implement） |
 | `.cursor/cli.json` | Agent 读写 / Shell 权限 |
 | `README.md` | 仓库首页简要说明 |
 
