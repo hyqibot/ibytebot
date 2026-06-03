@@ -170,3 +170,27 @@ jobs:
           else
             echo "Agent 未产生文件改动。见 ${RUN_URL}" >> "$GITHUB_STEP_SUMMARY"
           fi
+
+      - name: PR Agent Desktop preview (Job Summary → exe 侧栏)
+        if: always()
+        env:
+          AGENT_OUTPUT: /tmp/claude-agent-output.txt
+          BRANCH_PREFIX: claude
+        run: |
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo "PR_AGENT_PREVIEW_BEGIN"
+          if [ -f "$GITHUB_STEP_SUMMARY" ] && [ -s "$GITHUB_STEP_SUMMARY" ]; then
+            cat "$GITHUB_STEP_SUMMARY"
+          elif [ -f "$AGENT_OUTPUT" ] && grep -q '[^[:space:]]' "$AGENT_OUTPUT"; then
+            cat "$AGENT_OUTPUT"
+          else
+            echo "（无 Job Summary / Agent 文本输出）"
+          fi
+          if [ "${{ inputs.mode }}" = "implement" ] && [ "${{ steps.changes.outputs.has_changes }}" = "true" ]; then
+            echo ""
+            echo "---"
+            echo "**implement** 已推分支: \`${BRANCH_PREFIX}/agent-${{ github.run_id }}\`"
+          fi
+          echo ""
+          echo "[Actions run](${RUN_URL})"
+          echo "PR_AGENT_PREVIEW_END"
