@@ -237,6 +237,8 @@ git pull ibytebot main
 2. 不要修改 packages/bytebotd 下的业务代码或 Dockerfile
 3. commit 并 push 仅 audit 文档到当前 PR 分支
 ```
+或更简短如：/cursor 审查 packages/bytebotd 的依赖与 Docker 配置，列出风险。
+将结论写入 docs/audit-bytebotd-YYYY-MM-DD.md，不要改业务代码，commit 并 push 仅 audit 文档。
 
 完成后看 **Files changed** 里的 audit 文档。
 
@@ -321,7 +323,7 @@ GitHub 默认设置：
 
 | 文件 | 作用 |
 |------|------|
-| `.github/workflows/cursor-pr-comment.yml` | `/cursor` / `/claude` 统一触发（PR Agent Comment） |
+| `.github/workflows/cursor-pr-comment.yml` | `/cursor` / `/claude` / `/codex` 统一触发（PR Agent Comment） |
 | `.github/workflows/claude-code-kimi.yml` | 手动 workflow_dispatch 调试 |
 | `.github/workflows/cursor-agent.yml` | workflow_dispatch（audit/implement） |
 | `.cursor/cli.json` | Agent 读写 / Shell 权限 |
